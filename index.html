@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Signaux FAERS</title>
+  <meta name="description" content="Détection de signaux de pharmacovigilance par disproportionnalité dans la base FAERS de la FDA.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d366b'/%3E%3Ccircle cx='9' cy='22' r='3' fill='%2386b6ef'/%3E%3Ccircle cx='16' cy='15' r='3' fill='%235598e7'/%3E%3Ccircle cx='24' cy='9' r='3.5' fill='%23fff'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="masthead">
+    <div class="wrap">
+      <p class="eyebrow">Pharmacovigilance · FDA FAERS</p>
+      <h1>Signaux de disproportionnalité</h1>
+      <p class="lede" id="lede">Chargement des données…</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="notice" role="note">
+      <strong>Hypothèses, pas preuves.</strong>
+      Un signal indique qu'un couple molécule–effet est déclaré plus souvent qu'attendu. Il ne mesure ni
+      un risque ni une fréquence, et ne démontre pas un lien de causalité.
+    </div>
+
+    <form class="filters" id="filters" aria-label="Filtres" onsubmit="return false">
+      <label class="field">
+        <span>Classe</span>
+        <select id="f-classe"></select>
+      </label>
+      <label class="field">
+        <span>Molécule</span>
+        <select id="f-mol"></select>
+      </label>
+      <label class="field grow">
+        <span>Effet indésirable (terme MedDRA)</span>
+        <input id="f-effet" type="search" placeholder="ex. haemorrhage, tendon…" autocomplete="off">
+      </label>
+      <label class="field narrow">
+        <span>Cas minimum</span>
+        <input id="f-cas" type="number" min="3" step="1" value="10" inputmode="numeric">
+      </label>
+      <label class="field">
+        <span>Niveau</span>
+        <select id="f-force">
+          <option value="signal">Signaux uniquement</option>
+          <option value="modere">Modérés et forts</option>
+          <option value="fort">Forts uniquement</option>
+          <option value="tous">Tous les couples</option>
+        </select>
+      </label>
+      <fieldset class="checks">
+        <legend>Exclure</legend>
+        <label><input type="checkbox" id="f-nc" checked> termes non cliniques</label>
+        <label><input type="checkbox" id="f-ind" checked> indications probables</label>
+        <label><input type="checkbox" id="f-grappe" checked> grappes de doublons</label>
+      </fieldset>
+      <button type="button" class="btn ghost" id="f-reset">Réinitialiser</button>
+    </form>
+
+    <section class="kpis" id="kpis" aria-label="Chiffres clés"></section>
+
+    <section class="grid2">
+      <article class="card">
+        <header class="card-head">
+          <h2>Carte des signaux</h2>
+          <p>Chaque point est un couple molécule–effet. À droite : plus déclaré qu'attendu. En haut : davantage de cas.</p>
+        </header>
+        <div class="legend" id="scatter-legend"></div>
+        <div class="chart" id="scatter"></div>
+      </article>
+
+      <article class="card">
+        <header class="card-head">
+          <h2>Signaux les plus marqués</h2>
+          <p>Rapport de cotes de notification (ROR) et intervalle de confiance à 95 %, échelle logarithmique.</p>
+        </header>
+        <div class="chart" id="forest"></div>
+      </article>
+    </section>
+
+    <article class="card">
+      <header class="card-head">
+        <h2 id="heat-title">Comparaison entre molécules</h2>
+        <p id="heat-sub">Composante d'information (IC) des effets les plus marqués de la sélection, pour chaque molécule. Rouge : sur-déclaré ; bleu : sous-déclaré ; vide : moins de 10 cas ou effet hors des 500 premiers de la molécule.</p>
+      </header>
+      <div class="heat-scale" id="heat-scale"></div>
+      <div class="heat-scroll" id="heat"></div>
+    </article>
+
+    <article class="card">
+      <header class="card-head row">
+        <div>
+          <h2>Tableau des couples</h2>
+          <p id="table-count"></p>
+        </div>
+        <button type="button" class="btn" id="export">Exporter en CSV</button>
+      </header>
+      <div class="table-scroll">
+        <table id="table">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <nav class="pager" id="pager" aria-label="Pagination"></nav>
+    </article>
+
+    <article class="card">
+      <header class="card-head">
+        <h2>Analyser une autre molécule</h2>
+        <p>Interroge openFDA en direct depuis votre navigateur et ajoute la molécule aux graphiques. Nom de substance en anglais (ex. <em>tramadol</em>, <em>fluoxetine</em>).</p>
+      </header>
+      <form class="live" id="live" onsubmit="return false">
+        <label class="field grow">
+          <span>Substance active</span>
+          <input id="live-nom" type="text" placeholder="ex. tramadol" autocomplete="off" spellcheck="false">
+        </label>
+        <button type="submit" class="btn primary" id="live-go">Analyser</button>
+      </form>
+      <p class="status" id="live-status" role="status" aria-live="polite"></p>
+    </article>
+
+    <details class="card method">
+      <summary>Méthode et limites</summary>
+      <div class="method-body">
+        <h3>Source</h3>
+        <p id="method-source"></p>
+
+        <h3>Mesures</h3>
+        <p>Pour chaque couple, on compare la part des déclarations de la molécule qui mentionnent l'effet à la même part dans le reste de la base.</p>
+        <ul>
+          <li><strong>PRR</strong> (rapport proportionnel de notification) = [a / (a+b)] / [c / (c+d)].</li>
+          <li><strong>ROR</strong> (rapport de cotes de notification) = (a·d) / (b·c), avec intervalle de confiance à 95 %.</li>
+          <li><strong>χ²</strong> avec correction de Yates.</li>
+          <li><strong>IC</strong> (composante d'information, BCPNN) = log₂[(a+0,5) / (attendus+0,5)], avec borne basse à 95 % (IC025). L'IC reste stable quand les effectifs sont faibles.</li>
+        </ul>
+        <p>a : déclarations avec la molécule et l'effet ; b : avec la molécule sans l'effet ; c : avec l'effet sans la molécule ; d : ni l'un ni l'autre.</p>
+
+        <h3>Critères de signal</h3>
+        <p>Un couple est retenu si trois critères concordent : PRR ≥ 2 avec χ² ≥ 4 et au moins 3 cas (Evans), borne basse du ROR &gt; 1, et IC025 &gt; 0. Le niveau dépend de l'IC025 : faible (&lt; 1,5), modéré (1,5 à 3), fort (≥ 3).</p>
+
+        <h3>Filtres par défaut</h3>
+        <ul>
+          <li><strong>Termes non cliniques</strong> : erreurs d'utilisation, problèmes de produit, hospitalisation, décès, inefficacité.</li>
+          <li><strong>Indications probables</strong> : l'effet figure parmi les indications les plus déclarées de la molécule (biais d'indication).</li>
+          <li><strong>Grappes de doublons</strong> : le même effet ressort en signal fort pour de nombreuses molécules de classes sans rapport, signature de déclarations dupliquées en masse.</li>
+        </ul>
+
+        <h3>Limites</h3>
+        <ul>
+          <li>Déclaration spontanée : sous-déclaration, effet de notoriété, doublons, qualité variable. Aucun dénominateur d'exposition.</li>
+          <li>Tous les rôles du médicament sont comptés (suspect, concomitant, interagissant) : les co-prescriptions créent des associations indirectes.</li>
+          <li>Les sels et les associations fixes sont regroupés sous la substance recherchée.</li>
+          <li>Seuls les 500 effets les plus déclarés de chaque molécule sont évalués, et seulement si la fréquence de l'effet dans la base a pu être obtenue.</li>
+          <li>Les termes MedDRA sont affichés en anglais, tels que fournis par la FDA.</li>
+        </ul>
+      </div>
+    </details>
+  </main>
+
+  <footer class="wrap foot">
+    <p>Données : <a href="https://open.fda.gov/apis/drug/event/" rel="noopener">openFDA – Drug Adverse Event</a>. Outil d'exploration, sans valeur de recommandation médicale.</p>
+  </footer>
+
+  <div class="tooltip" id="tooltip" hidden></div>
+
+  <script src="data/signals.js"></script>
+  <script src="js/stats.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/openfda.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
